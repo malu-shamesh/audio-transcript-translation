@@ -1,0 +1,5 @@
+# Speech-to-text (free, open source, runs fully offline once the model is downloaded)
+openai-whisper>=20231117
+
+# Testing
+pytest>=8.0.0

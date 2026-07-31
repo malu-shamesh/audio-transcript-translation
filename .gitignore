@@ -216,3 +216,10 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Generated transcripts/translations
+outputs/*
+!outputs/.gitkeep
+
+# Downloaded Whisper model weights
+.cache/whisper/
