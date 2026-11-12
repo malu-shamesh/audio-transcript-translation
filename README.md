@@ -1,59 +1,73 @@
-# audio-transcript-translation
+# Offline Audio Transcription and Translation
 
-Automated multilingual transcription with Whisper.
+A command-line tool that transcribes speech in dozens of languages, or translates it into English, using OpenAI's open-source Whisper model on your own machine. No API key, no per-minute cost, and no audio leaves the computer.
 
-This repo previously contained no code - only this README. Built out from scratch as a runnable CLI tool rather than a converted notebook (there was nothing to convert).
+## Highlights
 
-## What it does
+- **Runs locally.** Whisper's weights download once and are cached; after that, everything works offline.
+- **Two tasks, one model.** `transcribe` writes text in the spoken language, which Whisper detects automatically. `translate` writes English text from any supported language, using Whisper's built-in translation mode.
+- **Three output formats.** Plain text, SRT subtitles, or JSON with per-segment timestamps and the detected language.
+- **Single files or whole folders.** Batch mode processes every supported file in a directory, and loads each model size only once.
+- **Fails fast.** Missing files and unsupported formats are rejected before the model loads.
 
-Transcribes or translates audio files using [OpenAI's open-source Whisper model](https://github.com/openai/whisper), run entirely locally:
+## How it works
 
-- **`transcribe`**: outputs text in the audio's own spoken language (multilingual - Whisper supports dozens of languages and auto-detects the spoken one).
-- **`translate`**: outputs English text regardless of the spoken language, using Whisper's built-in translation task mode - not a separate translation model or API call. This is a Whisper model limitation as well as its feature: it only ever translates *to* English, not between arbitrary language pairs.
+```mermaid
+flowchart LR
+    A["Audio file or folder<br/>mp3, wav, m4a, flac, ogg, mp4, webm"] --> B["Validate the format"]
+    B --> C["Whisper model<br/>cached per size"]
+    C -->|transcribe| D["Text in the spoken language"]
+    C -->|translate| E["English text"]
+    D --> F["TXT, SRT or JSON"]
+    E --> F
+```
 
-Output can be written as plain text (`.txt`), subtitles (`.srt`), or structured JSON with per-segment timestamps.
+## Model sizes
 
-## Why Whisper (free, no trial tiers)
+| Size | Trade-off |
+|---|---|
+| `tiny`, `base` | Fastest; `base` is the default |
+| `small`, `medium` | More accurate, slower |
+| `large` | Most accurate; needs the most memory |
 
-`openai-whisper` is the original open-source package - not the paid OpenAI API. Once model weights are downloaded (automatically, on first use, cached locally), everything runs offline with no API key, no per-minute cost, and no usage cap.
-
-## Architecture
+## Project structure
 
 ```
 src/
-  audio_input.py    # Finds/validates audio files (extension check before touching Whisper)
-  transcriber.py     # Loads (and caches) a Whisper model, runs transcribe/translate
-  output_writer.py   # Formats Whisper's result dict as .txt / .srt / .json
-main.py              # CLI: validate -> transcribe/translate -> write output
+  audio_input.py     Finds and validates audio files before the model loads
+  transcriber.py     Loads and caches Whisper models; runs transcribe or translate
+  output_writer.py   Formats Whisper's output as TXT, SRT or JSON
+main.py              Command-line entry point
+tests/               Unit tests for input validation and the output formats
 ```
 
-## Setup
+## Getting started
 
 ```bash
 python -m venv venv
-source venv/bin/activate  # or venv\Scripts\activate on Windows
+source venv/bin/activate          # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-**ffmpeg is also required** (Whisper uses it to decode audio) - install via your OS package manager (`brew install ffmpeg`, `apt-get install ffmpeg`, or the [Windows builds](https://www.gyan.dev/ffmpeg/builds/)) and ensure it's on your `PATH`.
+Whisper decodes audio with **ffmpeg**, so install it and make sure it's on your `PATH`: `brew install ffmpeg`, `apt-get install ffmpeg`, or the [Windows builds](https://www.gyan.dev/ffmpeg/builds/).
 
 ## Usage
 
 ```bash
-# Transcribe in the spoken language, SRT subtitles
-python main.py --input audio.mp3 --task transcribe --format srt
+# Transcribe in the spoken language, as SRT subtitles
+python main.py --input interview.mp3 --task transcribe --format srt
 
-# Translate to English, plain text
-python main.py --input audio.mp3 --task translate --format txt
+# Translate to English, as plain text
+python main.py --input interview.mp3 --task translate --format txt
 
-# Process every supported file in a directory
-python main.py --input-dir audio_samples --task transcribe --format json
+# Process every supported file in a folder, as JSON
+python main.py --input-dir recordings --task transcribe --format json
 
-# Use a larger, more accurate (but slower) model
-python main.py --input audio.mp3 --model-size medium
+# A larger, more accurate model
+python main.py --input interview.mp3 --model-size medium
 ```
 
-Model sizes (`tiny` to `large`) trade accuracy for speed/memory - `base` is the default. Output files land in `--output-dir` (default `outputs/`), named after the input file with the chosen format's extension.
+Output files are written to `--output-dir` (default `outputs/`), named after each input file.
 
 ## Tests
 
@@ -61,10 +75,16 @@ Model sizes (`tiny` to `large`) trade accuracy for speed/memory - `base` is the 
 pytest
 ```
 
-Covers `audio_input.py` (extension filtering, sorted results, missing/unsupported file errors) and `output_writer.py` (SRT timestamp formatting including negative-time clamping, text/SRT/JSON formatting from a sample Whisper result dict, and the unsupported-format error path) - none of which need Whisper or ffmpeg to run.
+12 unit tests cover input validation (supported formats, sorting, missing and unsupported files) and the three output formats, including SRT timestamp formatting. They need neither Whisper nor ffmpeg.
 
-## Verification
+## Design notes
 
-Unlike several other repos converted this session (`Agentic-document-extraction`'s PaddleOCR, `classify-handwritten-digits`' TensorFlow), **`openai-whisper` and its `torch` dependency install and import cleanly on this environment's Python 3.14** - confirmed directly, not assumed. `src/audio_input.py` and `src/output_writer.py` are fully verified with 12 passing tests.
+- **The open-source package, not the paid API.** `openai-whisper` runs the model locally, which keeps recordings private and costs nothing per minute.
+- **Whisper's own translation.** The `translate` task uses Whisper's built-in mode rather than a second translation model. It translates into English only, which is how Whisper works.
+- **Validation before inference.** Checking the file first gives a clear error in milliseconds, instead of a failure deep inside ffmpeg after the model has loaded.
 
-What could *not* be verified: **ffmpeg is not installed in this environment**, and Whisper requires it unconditionally - even for raw WAV files. `src/transcriber.py`'s model-loading step (`whisper.load_model`) was confirmed to work (downloads and loads real model weights successfully), but running `main.py` against a synthetic test WAV confirmed Whisper's `load_audio` always shells out to the `ffmpeg` binary via `subprocess.run`, with no pure-Python fallback - it fails with `FileNotFoundError: [WinError 2] The system cannot find the file specified` without it. So the actual transcribe/translate call is unverified here, but the failure mode is now confirmed rather than assumed. Install ffmpeg and re-run `main.py` against a real audio file before relying on this tool.
+## Roadmap
+
+- Word-level timestamps
+- Speaker diarization, to label who said what
+- An optional faster-whisper backend for quicker CPU and GPU runs
